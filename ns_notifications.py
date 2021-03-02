@@ -4,8 +4,6 @@ NS trip notifier
 """
 import ns_api
 import click
-from pushbullet import PushBullet
-import pushbullet
 from pymemcache.client import Client as MemcacheClient
 import datetime
 import json
@@ -61,7 +59,7 @@ def get_repo_version():
     """
     Get the current version on GitHub
     """
-    url = 'https://raw.githubusercontent.com/aquatix/ns-notifications/master/VERSION'
+    url = 'https://raw.githubusercontent.com/reyhard/ns-notifications-openhab/master/VERSION'
     try:
         response = requests.get(url)
         if response.status_code != 404:
@@ -477,52 +475,52 @@ def run_all_notifications():
     except AttributeError:
         pass
 
-    if settings.notification_type == 'pb':
-        p, sendto_device = get_pushbullet_config(logger)
-        if not sendto_device:
-            sys.exit(1)
-
-        if update_message:
-            p.push_note(update_message['header'], update_message['message'], sendto_device)
-
-        if changed_disruptions:
-            # There are disruptions that are new or changed since last run
-            sendto_channel = None
-            try:
-                if settings.pushbullet_use_channel:
-                    channels = p.channels
-                    for channel in channels:
-                        #print dev.device_iden + ' ' + dev.nickname
-                        if channel.channel_tag == settings.pushbullet_channel_tag:
-                            sendto_channel = channel
-                    if not sendto_channel:
-                        logger.error('PushBullet channel configured, but tag "' + settings.pushbullet_channel_tag + '" not found')
-                        print('PushBullet channel configured, but tag "' + settings.pushbullet_channel_tag + '" not found')
-            except AttributeError as e:
-                logger.error('PushBullet channel settings not found - ' + str(e))
-                print('PushBullet channel settings not found, see settings_example.py - ' + str(e))
-
-            for disruption in changed_disruptions:
-                message = format_disruption(disruption)
-                logger.debug(message)
-                #print message
-                if sendto_channel:
-                    sendto_channel.push_note(message['header'], message['message'])
-                else:
-                    p.push_note(message['header'], message['message'], sendto_device)
-        if trips:
-            for trip in trips:
-                if not arrival_delays:
-                    # User is only interested in departure
-                    notification_needed = trip.has_delay(arrival_check=False)
-                else:
-                    notification_needed = trip.has_delay()
-                if notification_needed:
-                    message = format_trip(trip)
-                    #print message
-                    logger.debug(message)
-                    #p.push_note('title', 'body', sendto_device)
-                    p.push_note(message['header'], message['message'], sendto_device)
+#    if settings.notification_type == 'pb':
+#        p, sendto_device = get_pushbullet_config(logger)
+#        if not sendto_device:
+#            sys.exit(1)
+#
+#        if update_message:
+#            p.push_note(update_message['header'], update_message['message'], sendto_device)
+#
+#        if changed_disruptions:
+#            # There are disruptions that are new or changed since last run
+#            sendto_channel = None
+#            try:
+#                if settings.pushbullet_use_channel:
+#                    channels = p.channels
+#                    for channel in channels:
+#                        #print dev.device_iden + ' ' + dev.nickname
+#                        if channel.channel_tag == settings.pushbullet_channel_tag:
+#                            sendto_channel = channel
+#                    if not sendto_channel:
+#                        logger.error('PushBullet channel configured, but tag "' + settings.pushbullet_channel_tag + '" not found')
+#                        print('PushBullet channel configured, but tag "' + settings.pushbullet_channel_tag + '" not found')
+#            except AttributeError as e:
+#                logger.error('PushBullet channel settings not found - ' + str(e))
+#                print('PushBullet channel settings not found, see settings_example.py - ' + str(e))
+#
+#            for disruption in changed_disruptions:
+#                message = format_disruption(disruption)
+#                logger.debug(message)
+#                #print message
+#                if sendto_channel:
+#                    sendto_channel.push_note(message['header'], message['message'])
+#                else:
+#                    p.push_note(message['header'], message['message'], sendto_device)
+#        if trips:
+#            for trip in trips:
+#                if not arrival_delays:
+#                    # User is only interested in departure
+#                    notification_needed = trip.has_delay(arrival_check=False)
+#                else:
+#                    notification_needed = trip.has_delay()
+#                if notification_needed:
+#                    message = format_trip(trip)
+#                    #print message
+#                    logger.debug(message)
+#                    #p.push_note('title', 'body', sendto_device)
+#                    #p.push_note(message['header'], message['message'], sendto_device)
 
 
 @cli.command('remove_pushbullet_pushes')

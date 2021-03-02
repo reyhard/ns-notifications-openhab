@@ -10,7 +10,6 @@ click==7.0
 future==0.17.1            # via nsapi, utilkit
 idna==2.8                 # via requests
 nsapi==2.7.4
-pushbullet.py==0.11.0
 pymemcache==2.1.1
 python-magic==0.4.15      # via pushbullet.py
 pytz==2019.1              # via nsapi, utilkit

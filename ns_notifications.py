@@ -14,11 +14,14 @@ import logging
 import sys
 import os
 
-try:
-    import settings
-except ImportError:
-    print('Copy settings_example.py to settings.py and set the configuration to your own preferences')
-    sys.exit(1)
+from openhab import OpenHAB
+
+from configparser import ConfigParser
+#try:
+#    import settings
+#except ImportError:
+#    print('Copy settings_example.py to settings.py and set the configuration to your own preferences')
+#    sys.exit(1)
 
 
 # Only plan routes that are at maximum half an hour in the past or an hour in the future
@@ -30,7 +33,7 @@ MEMCACHE_TTL = 3600
 MEMCACHE_VERSIONCHECK_TTL = 3600 * 12
 MEMCACHE_DISABLING_TTL = 3600 * 6
 
-VERSION_NSAPI = '2.7.4'
+VERSION_NSAPI = '3.0.5'
 
 
 class MemcachedNotInstalledException(Exception):
@@ -53,6 +56,12 @@ def json_deserializer(key, value, flags):
         return json.loads(value)
     raise Exception("Unknown serialization format")
 
+def get_config(config_dir):
+    # Load configuration file
+    config = ConfigParser(delimiters=('=', ))
+    config.optionxform = str
+    config.read([os.path.join(config_dir, 'config.ini.dist'), os.path.join(config_dir, 'config.ini')])
+    return config
 
 ## Check for an update of the notifier
 def get_repo_version():
@@ -133,48 +142,19 @@ def get_logger():
     logger.addHandler(fh)
     return logger
 
-
-def get_pushbullet_config(logger=None):
-    """
-    Return PushBullet handle and device to send to
-    """
-
-    api_key = settings.pushbullet_key
-    try:
-        p = PushBullet(api_key)
-    except pushbullet.errors.InvalidKeyError:
-        print('Invalid PushBullet key')
-        sys.exit(1)
-    except requests.exceptions.ConnectionError as e:
-        if logger:
-            logger.error('PushBullet connection error while getting config - ' + str(e))
-        return None, None
-    devs = p.devices
-    sendto_device = None
-    try:
-        if settings.pushbullet_device_id != None:
-            for dev in devs:
-                #print dev.device_iden + ' ' + dev.nickname
-                if dev.device_iden == settings.pushbullet_device_id:
-                    sendto_device = dev
-    except AttributeError:
-        # pushbullet_device_id wasn't even found in settings.py
-        pass
-    if not sendto_device:
-        print("Please select a device from the PushBullet list and set as pushbullet_device_id in settings.py")
-        for dev in devs:
-            print("{: >20} {: >40}".format(dev.device_iden, dev.nickname))
-        #sys.exit(1)
-
-    return p, sendto_device
-
-
 ## Format messages
 def format_disruption(disruption):
     """
     Format a disruption on a trajectory
     """
-    return {'timestamp': ns_api.datetimeutil.simple_time(disruption.timestamp), 'header': u'Traject: ' + disruption.line, 'message': u'⚠ ' + disruption.reason + "\n" + disruption.message}
+    print(disruption.key)
+    print(disruption.line)
+    print(disruption.timestamp)
+    #print(disruption.disruption)
+    time = disruption.timestamp
+    if time != None:
+        time = ns_api.simple_time(time)
+    return {'timestamp': time, 'header': u'Traject: ' + disruption.line, 'message': u'⚠ ' + str(disruption.disruption)}
     #return {'header': 'Traject: ' + disruption.line, 'message': disruption.reason + "\n" + disruption.message}
 
 
@@ -187,14 +167,14 @@ def format_trip(trip, text_type='long'):
     trip_delay = trip.delay
     message = u''
     if trip_delay['requested_differs']:
-        #message = message + u'↦ ' + ns_api.datetimeutil.simple_time(trip_delay['requested_differs']) + u' (' + ns_api.datetimeutil.simple_time(trip.requested_time)
-        message = message + u'↦ ' + ns_api.datetimeutil.simple_time(trip.requested_time)
+        #message = message + u'↦ ' + ns_api.simple_time(trip_delay['requested_differs']) + u' (' + ns_api.simple_time(trip.requested_time)
+        message = message + u'↦ ' + ns_api.simple_time(trip.requested_time)
     if trip_delay['departure_delay']:
-        #message = message + u' 🕖 ' + ns_api.datetimeutil.simple_time(trip_delay['departure_delay']) +")\n"
-        message = message + u' +' + ns_api.datetimeutil.simple_time(trip_delay['departure_delay']) +"\n"
+        #message = message + u' 🕖 ' + ns_api.simple_time(trip_delay['departure_delay']) +")\n"
+        message = message + u' +' + ns_api.simple_time(trip_delay['departure_delay']) +"\n"
     if trip.arrival_time_actual != trip.arrival_time_planned:
-        #message = message + u'⇥ ' + ns_api.datetimeutil.simple_time(trip.arrival_time_actual) + u' (' + ns_api.datetimeutil.simple_time(trip.arrival_time_planned) + u' 🕖 ' + ns_api.datetimeutil.simple_time(trip.arrival_time_actual - trip.arrival_time_planned) + ")\n"
-        message = message + u'⇥ ' + ns_api.datetimeutil.simple_time(trip.arrival_time_planned) + u' +' + ns_api.datetimeutil.simple_time(trip.arrival_time_actual - trip.arrival_time_planned) + "\n"
+        #message = message + u'⇥ ' + ns_api.simple_time(trip.arrival_time_actual) + u' (' + ns_api.simple_time(trip.arrival_time_planned) + u' 🕖 ' + ns_api.simple_time(trip.arrival_time_actual - trip.arrival_time_planned) + ")\n"
+        message = message + u'⇥ ' + ns_api.simple_time(trip.arrival_time_planned) + u' +' + ns_api.simple_time(trip.arrival_time_actual - trip.arrival_time_planned) + "\n"
 
     if trip.trip_remarks:
         for remark in trip.trip_remarks:
@@ -206,35 +186,15 @@ def format_trip(trip, text_type='long'):
     subtrips = []
     for part in trip.trip_parts:
         if part.has_delay:
-            #subtrips.append(part.transport_type + ' naar ' + part.destination + ' van ' + ns_api.datetimeutil.simple_time(part.departure_time) + ' vertrekt van spoor ' + part.stops[0].platform)
-            subtrips.append(part.transport_type + ' naar ' + part.destination + ' van ' + ns_api.datetimeutil.simple_time(part.departure_time) + ' (spoor ' + part.stops[0].platform + ')')
+            #subtrips.append(part.transport_type + ' naar ' + part.destination + ' van ' + ns_api.simple_time(part.departure_time) + ' vertrekt van spoor ' + part.stops[0].platform)
+            subtrips.append(part.transport_type + ' naar ' + part.destination + ' van ' + ns_api.simple_time(part.departure_time) + ' (spoor ' + part.stops[0].platform + ')')
             for stop in part.stops:
                 if stop.delay:
-                    #subtrips.append('Stop ' + stop.name + ' @ ' + ns_api.datetimeutil.simple_time(stop.time) + ' ' + stop.delay)
-                    subtrips.append(u'🚉 ' + stop.name + ' @ ' + ns_api.datetimeutil.simple_time(stop.time) + ' ' + stop.delay)
+                    #subtrips.append('Stop ' + stop.name + ' @ ' + ns_api.simple_time(stop.time) + ' ' + stop.delay)
+                    subtrips.append(u'🚉 ' + stop.name + ' @ ' + ns_api.simple_time(stop.time) + ' ' + stop.delay)
     message = message + u'\n'.join(subtrips)
     message = message + '\n\n(ns-notifier)'
-    return {'header': trip.trip_parts[0].transport_type + ' ' + trip.departure + '-' + trip.destination + ' (' + ns_api.datetimeutil.simple_time(trip.requested_time) + ')', 'message': message}
-
-
-## Retrieval
-def get_stations(mc, nsapi):
-    """
-    Get the list of all stations, put in cache if not already there
-    """
-    try:
-        stations = mc.get('stations')
-    except KeyError:
-        stations = []
-        try:
-            stations = nsapi.get_stations()
-        except requests.exceptions.ConnectionError:
-            print('Something went wrong connecting to the API')
-
-        stations_json = ns_api.list_to_json(stations)
-        # Cache the stations
-        mc.set('stations', stations_json)
-    return stations
+    return {'header': trip.trip_parts[0].transport_type + ' ' + trip.departure + '-' + trip.destination + ' (' + ns_api.simple_time(trip.requested_time) + ')', 'message': message}
 
 
 def get_changed_disruptions(mc, disruptions):
@@ -292,7 +252,6 @@ def get_changed_trips(mc, nsapi, routes, userkey):
         prev_trips = []
     prev_trips = ns_api.list_from_json(prev_trips)
     trips = []
-
     for route in routes:
         if len(route['time']) <= 5:
             route_time = datetime.datetime.strptime(today_date + " " + route['time'], "%d-%m-%Y %H:%M")
@@ -311,6 +270,15 @@ def get_changed_trips(mc, nsapi, routes, userkey):
             keyword = None
         current_trips = nsapi.get_trips(route['time'], route['departure'], keyword, route['destination'], True)
         optimal_trip = ns_api.Trip.get_actual(current_trips, route['time'])
+        for trip in current_trips:
+            print(trip.departure_time_planned)
+            if(trip.status == "NORMAL"):
+                print("according to plan captain!")
+            print(trip.delay)
+            print(trip.status)
+            print(trip.departure_platform_actual)
+
+
         #optimal_trip = ns_api.Trip.get_optimal(current_trips)
         if not optimal_trip:
             #print("Optimal not found. Alert?")
@@ -338,19 +306,6 @@ def get_changed_trips(mc, nsapi, routes, userkey):
     mc.set(str(userkey) + '_trips', ns_api.list_to_json(save_trips), MEMCACHE_TTL)
     return new_or_changed_trips
 
-
-def get_changed_departures(mc, station, userkey):
-
-    try:
-        departures = []
-        departures = nsapi.get_departures('Heemskerk')
-        print(departures)
-
-    except requests.exceptions.ConnectionError as e:
-        #print('[ERROR] connectionerror doing departures')
-        errors.append(('Exception doing departures', e))
-
-
 ## Main program
 @click.group()
 def cli():
@@ -361,24 +316,76 @@ def cli():
     #print 'right'
     pass
 
-
-#@cli.command('run_disruptions')
 @cli.command()
-#@click.option('-f', '--feedname', prompt='Feed name')
-def run_disruptions():
+@click.option('--departure',
+              required=True,
+              help=(('Departure station, '
+                     'if not specifed, it is read from --device-config')))
+@click.option('--destination',
+              required=True,
+              help=(('Destination station, '
+                     'if not specifed, it is read from --device-config')))
+@click.option('--time',
+              required=False,
+              default=None,
+              help=(('Departure time, '
+                     'if not specifed, it is read from --device-config')))
+@click.option('--config_dir',
+              required=False,
+              default=sys.path[0],
+              help=(('Config directory, '
+                     'Directory where config.ini is located')))
+def check_connections(departure, destination, time, config_dir):
     """
-    Only check for disruptions
+    Send 'ns-notifcations was updated' message after (automatic) upgrade
     """
-    click.secho('Needs implementing', fg='red')
 
+    settings = get_config(config_dir)
+    nsapi = ns_api.NSAPI( settings['General'].get('apikey',''))
+    print(departure + " " + destination + " " + str(time))
+    
+
+    openhab = OpenHAB(settings['Openhab'].get('openhab_url'))
+    item_ns_routeName = openhab.get_item(settings['Openhab'].get('openhab_item_route_name'))
+    item_ns_routeName.command(departure + "->" + destination + " (" + str(time)+")")
+    current_trips = nsapi.get_trips(time, departure, None, destination, True)
+    ns_trains = json.loads(settings['Openhab'].get('openhab_item_trains',[]))
+
+    for index, trip in enumerate(current_trips):
+        print(index)
+        if(trip.status == "NORMAL"):
+            text = "🟢 "
+        else:
+            text = "🔴 "
+        text = text + str(trip.product_shortCategoryName) + " "
+        text = text + "  " + str(ns_api.simple_time(trip.departure_time_planned))
+        text = text + " ➡ " + str(ns_api.simple_time(trip.arrival_time_planned))
+        text = text + " ⏱ " + (str(datetime.timedelta(minutes=(trip.travel_time_actual))))[:-3]
+        
+        if(trip.status == "NORMAL"):
+            print("according to plan captain!")
+        else:
+            print(trip.disruptions_head)
+            print(trip.disruptions_text)
+        #print(trip.delay)
+        print(trip.status)
+        print(trip.departure_platform_actual)
+        item_ns_train = openhab.get_item(ns_trains[index])
+        item_ns_train.command(text)
 
 #@cli.command('run_all_notifications')
 @cli.command()
-def run_all_notifications():
+@click.option('--config_dir',
+              required=False,
+              default=sys.path[0],
+              help=(('Config directory, '
+                     'Directory where config.ini is located')))
+def run_all_notifications(config_dir):
     """
     Check for both disruptions and configured trips
     """
     logger = get_logger()
+    settings = get_config(config_dir)
 
     ## Open memcache
     mc = MemcacheClient(('127.0.0.1', 11211), serializer=json_serializer,
@@ -427,10 +434,10 @@ def run_all_notifications():
         sys.exit(0)
 
     errors = []
-    nsapi = ns_api.NSAPI(settings.username, settings.apikey)
+    nsapi = ns_api.NSAPI( settings.apikey)
 
     ## Get the list of stations
-    stations = get_stations(mc, nsapi)
+    #stations = get_stations(mc, nsapi)
 
 
     ## Get the current disruptions (globally)
@@ -450,7 +457,6 @@ def run_all_notifications():
             logger.error('Exception doing disruptions ' + repr(e))
             errors.append(('Exception doing disruptions', e))
 
-
     ## Get the information on the list of trips configured by the user
     trips = []
     get_trips = True
@@ -462,7 +468,7 @@ def run_all_notifications():
     if get_trips:
         try:
             trips = get_changed_trips(mc, nsapi, settings.routes, userkey)
-            #print(trips)
+            print(trips)
         except (requests.exceptions.ConnectionError, requests.exceptions.HTTPError) as e:
             #print('[ERROR] connectionerror doing trips')
             logger.error('Exception doing trips ' + repr(e))
@@ -486,28 +492,9 @@ def run_all_notifications():
         if changed_disruptions:
             # There are disruptions that are new or changed since last run
             sendto_channel = None
-            #try:
-            #    if settings.pushbullet_use_channel:
-            #        channels = p.channels
-            #        for channel in channels:
-            #            #print dev.device_iden + ' ' + dev.nickname
-            #            if channel.channel_tag == settings.pushbullet_channel_tag:
-            #                sendto_channel = channel
-            #        if not sendto_channel:
-            #            logger.error('PushBullet channel configured, but tag "' + settings.pushbullet_channel_tag + '" not found')
-            #            print('PushBullet channel configured, but tag "' + settings.pushbullet_channel_tag + '" not found')
-            #except AttributeError as e:
-            #    logger.error('PushBullet channel settings not found - ' + str(e))
-            #    print('PushBullet channel settings not found, see settings_example.py - ' + str(e))
 
             for disruption in changed_disruptions:
                 message = format_disruption(disruption)
-                logger.debug(message)
-                #print message
-                #if sendto_channel:
-                #    sendto_channel.push_note(message['header'], message['message'])
-                #else:
-                #    p.push_note(message['header'], message['message'], sendto_device)
         if trips:
             for trip in trips:
                 if not arrival_delays:
@@ -522,68 +509,25 @@ def run_all_notifications():
                     #p.push_note('title', 'body', sendto_device)
                     #p.push_note(message['header'], message['message'], sendto_device)
 
-
-@cli.command('remove_pushbullet_pushes')
-def remove_pushbullet_pushes():
-    """
-    Clean up older pushes in PushBullet config
-    """
-    logger = get_logger()
-
-    p, sendto_device = get_pushbullet_config(logger)
-
-    if not sendto_device:
-        sys.exit(1)
-
-    # Only get the latest 1000 as history might be huge
-    pushes = p.get_pushes(None, 1000)
-    logger.debug('Removing pushes, found: ' + str(len(pushes[1])))
-    counter = 0
-    for push in pushes[1]:
-        tag_disruption = 'Traject: '
-        tag_trip = '(ns-notification)'
-        try:
-            #print push['title'][0:len(tag_disruption)]
-            #print push['body'][(-1 * len(tag_trip)):]
-            if (push['title'][0:len(tag_disruption)] == tag_disruption) or (push['body'][(-1 * len(tag_trip)):] == tag_trip):
-                #print ("deleting " + str(push))
-                counter = counter + 1
-                logger.debug("deleting " + str(push))
-                p.delete_push(push['iden'])
-        except KeyError:
-            # Likely 'body' not found, skipping
-            pass
-    logger.info('Finished removing pushes, deleted: ' + str(counter))
-
-
 @cli.command()
-def updated():
+@click.option('--config_dir',
+              required=False,
+              default=sys.path[0],
+              help=(('Config directory, '
+                     'Directory where config.ini is located')))
+def updated(config_dir):
     """
     Send 'ns-notifcations was updated' message after (automatic) upgrade
     """
-    logger = get_logger()
-    if settings.notification_type == 'pb':
-        p, sendto_device = get_pushbullet_config(logger)
-        if not sendto_device:
-            sys.exit(1)
+    
+    settings = get_config(config_dir)
 
-        local_version = get_local_version()
-        p.push_note('ns-notifier updated', 'Notifier was updated to ' + local_version + ', details might be in your (cron) email', sendto_device)
+    openhab = OpenHAB(settings.openhab_url)
+    item_ns_notification = openhab.get_item(settings.openhab_item_notifications)
 
+    local_version = get_local_version()
+    item_ns_notification.command('Notifier was updated to ' + local_version + ', details might be in your (cron) email')
 
-@cli.command()
-def test():
-    """
-    Send test message
-    """
-    logger = get_logger()
-    if settings.notification_type == 'pb':
-        p, sendto_device = get_pushbullet_config(logger)
-        if not sendto_device:
-            sys.exit(1)
-
-        local_version = get_local_version()
-        p.push_note('ns-notifier test', 'Test message from ns-notifier ' + local_version + '. Godspeed!', sendto_device)
 
 if not hasattr(main, '__file__'):
     """
